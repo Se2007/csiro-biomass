@@ -1,0 +1,10 @@
+Dataset/
+saved_model/
+wandb-key.txt
+wandb/
+__pycache__/
+csiro-biomass/
+*.rar
+*.zip
+*.csv
+*.jpg
