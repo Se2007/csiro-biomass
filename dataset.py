@@ -2,6 +2,7 @@ from cv2 import transform
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
 import torch.nn.functional as F
 
 import pandas as pd
@@ -105,51 +106,100 @@ class CsiroDataset(Dataset):
         state = torch.tensor(row["state_enc"], dtype=torch.long)
         species = torch.tensor(row["species_enc"], dtype=torch.long)
 
-        return {
-            "image": image,
-            "targets": targets,
-            "extras": extras,
-            "state": state,
-            "species": species,
-            "sample_id": row["sample_id"]
-        }
+        return image, targets, extras, state, species
+
     
     
 
 
-class BraTS20(object):
-    def __init__(self, root, mode, mini=False, memory=True) :
-        assert mode in ['train', 'valid', 'test'], 'mode should be train, test or valid'
-        self.mini = mini  
-        self.memory = memory
 
-        if mode == 'train' :
-            self.path_dataset = root + "/train.csv"
-        elif mode == 'valid':
-            self.path_dataset = root + "/val.csv"
-        elif mode == 'test' :
-            self.path_dataset = root + "/test.csv"
+class Csiro(object):
+    def __init__(
+        self,
+        root,
+        image_root,
+        transform=None,
+        valid_ratio=0.2,
+        seed=42,
+        mini=False
+    ):
+        self.samples_csv = root + "/samples.csv"
+        self.targets_csv = root + "/targets.csv"
+        self.image_root = image_root
+        self.transform = transform
+        self.valid_ratio = valid_ratio
+        self.seed = seed
+        self.mini = mini
 
-        # self.path_dataset = root
+    def __call__(self, batch_size):
 
+        dataset = CsiroDataset(
+            self.samples_csv,
+            self.targets_csv,
+            self.image_root,
+            self.transform
+        )
 
-    def __call__(self, batch_size) :
-        dataset = BraTS20_dataset(self.path_dataset, memory=self.memory)   #self.transform,
+        # ---------- FIXED RANDOM SPLIT ----------
+        total_len = len(dataset)
+        val_len = int(total_len * self.valid_ratio)
+        train_len = total_len - val_len
 
-        if self.mini == False :
-            data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-       
+        generator = torch.Generator().manual_seed(self.seed)
 
-        elif self.mini == True:
-            dataset,_ = random_split(dataset,(1000, len(dataset)-1000))
-            data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        train_dataset, val_dataset = random_split(
+            dataset,
+            [train_len, val_len],
+            generator=generator
+        )
 
-        return data_loader
+        if self.mini:
+            mini_train_dataset, _ = random_split(
+                train_dataset,
+                (100, len(train_dataset) - 100),    
+                generator=generator
+            )
+
+            mini_train_loader = DataLoader(
+                mini_train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=4,
+                pin_memory=True
+            )
+
+            return mini_train_loader
+
+        else:
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=4,
+                pin_memory=True
+            )
+
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=4,
+                pin_memory=True
+            )
+
+            return train_loader, val_loader
+
 
 
 
 if __name__=='__main__':
+    Transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(), 
+    ])  
 
+
+    '''
     dataset = CsiroDataset(
     samples_csv="./csiro-biomass/samples.csv",
     targets_csv="./csiro-biomass/targets.csv",
@@ -178,5 +228,19 @@ if __name__=='__main__':
     for i, cls in enumerate(dataset.species_encoder.classes_):
         print(f"  {i:02d} → {cls}")
 
+    '''
 
-     
+    train_loader = Csiro(
+                        root="./csiro-biomass",
+                        image_root="./csiro-biomass/",
+                        transform=Transform,
+                        valid_ratio=0.2,
+                        seed=42,
+                        mini=True   
+                        )(batch_size=6)
+    sample = next(iter(train_loader))
+    print(sample[0].shape)
+    print(sample[1].shape)
+    print(sample[2].shape)  
+    print(sample[3].shape)
+    print(sample[4].shape)
