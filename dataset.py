@@ -2,8 +2,6 @@ from cv2 import transform
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader, random_split
-from torchvision.transforms import v2
-from torchvision import tv_tensors
 import torch.nn.functional as F
 
 import pandas as pd
@@ -12,6 +10,7 @@ import random
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
+from sklearn.preprocessing import LabelEncoder
 
 
 
@@ -46,6 +45,35 @@ class CsiroDataset(Dataset):
             "GDM_g"
         ]
 
+        self.numeric_columns = [
+            "Pre_GSHH_NDVI",
+            "Height_Ave_cm"
+        ]
+
+        # force numeric
+        self.data[self.target_columns + self.numeric_columns] = (
+            self.data[self.target_columns + self.numeric_columns]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0.0)
+        )
+
+        # ---------------- Categorical: State ----------------
+        self.state_encoder = LabelEncoder()
+        self.data["state_enc"] = self.state_encoder.fit_transform(
+            self.data["State"]
+        )
+
+        # ---------------- Categorical: Species ----------------
+        self.species_encoder = LabelEncoder()
+        self.data["species_enc"] = self.species_encoder.fit_transform(
+            self.data["Species"]
+        )
+
+        # number of categories (for embeddings)
+        self.num_states = len(self.state_encoder.classes_)
+        self.num_species = len(self.species_encoder.classes_)
+
+
     def __len__(self,):
         return len(self.data)
     
@@ -71,11 +99,18 @@ class CsiroDataset(Dataset):
             [float(row["Pre_GSHH_NDVI"]), float(row["Height_Ave_cm"])],
             dtype=torch.float32
         )
+    
+
+        # ---------- Categorical ----------
+        state = torch.tensor(row["state_enc"], dtype=torch.long)
+        species = torch.tensor(row["species_enc"], dtype=torch.long)
 
         return {
             "image": image,
             "targets": targets,
             "extras": extras,
+            "state": state,
+            "species": species,
             "sample_id": row["sample_id"]
         }
     
@@ -123,11 +158,25 @@ if __name__=='__main__':
 )
    
     sample = dataset.__getitem__(0)
-    print(sample["image"].show())
+    # print(sample["image"].show())
+
+    print(f"Sample ID : {sample['sample_id']}")
+    print(f"State     : {sample['state']}")
+    print(f"Species   : {sample['species']}")
+
+    print("\nTargets")
     print(sample["targets"])
-    print(sample["extras"]) 
-    print(sample["sample_id"])
-   
+
+    print("\nExtras")
+    print(sample["extras"])
+
+    print("\nState Encoder Classes")
+    for i, cls in enumerate(dataset.state_encoder.classes_):
+        print(f"  {i:02d} → {cls}")
+
+    print("\nSpecies Encoder Classes")
+    for i, cls in enumerate(dataset.species_encoder.classes_):
+        print(f"  {i:02d} → {cls}")
 
 
      
