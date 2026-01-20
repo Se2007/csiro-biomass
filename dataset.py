@@ -80,25 +80,28 @@ class CsiroDataset(Dataset):
     
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
+        # print(idx)
 
         # --- Image ---
         img_path = os.path.join(self.image_root, row["image_path"])
         image = Image.open(img_path).convert("RGB")
-        print(image)
+        # print(image)
 
         if self.transform:
             image = self.transform(image)
 
         # --- Targets ---
-        targets = torch.tensor(
-            row[self.target_columns].astype(float).values,
-            dtype=torch.float32
+        targets = self.normalization(
+            torch.tensor(row[self.target_columns].astype(float).values, dtype=torch.float32),
+            mean=torch.tensor([ 6.6497, 12.0445, 26.6247, 45.3181, 33.2744]),  
+            std=torch.tensor([12.1178, 12.4020, 25.4012, 27.9840, 24.9358])           
         )
 
         # --- Extra numeric features (optional) ---
-        extras = torch.tensor(
-            [float(row["Pre_GSHH_NDVI"]), float(row["Height_Ave_cm"])],
-            dtype=torch.float32
+        extras = self.normalization(
+            torch.tensor([float(row["Pre_GSHH_NDVI"]), float(row["Height_Ave_cm"])], dtype=torch.float32),
+            mean=torch.tensor([0.6574229691876751, 7.595985434173669]),    
+            std=torch.tensor([0.1521422782849033, 10.285262364329933])
         )
     
 
@@ -107,6 +110,10 @@ class CsiroDataset(Dataset):
         species = torch.tensor(row["species_enc"], dtype=torch.long)
 
         return image, targets, extras, state, species
+    
+    def normalization(self, data, mean, std):
+        data = ( data - mean ) / ( std + 1e-6 )
+        return data
 
     
     
@@ -140,6 +147,10 @@ class Csiro(object):
             self.transform
         )
 
+        self.num_species, self.num_states = dataset.num_species, dataset.num_states
+        # print(f"Number of species: {self.num_species}")
+        # print(f"Number of states  : {self.num_states}")
+
         # ---------- FIXED RANDOM SPLIT ----------
         total_len = len(dataset)
         val_len = int(total_len * self.valid_ratio)
@@ -152,6 +163,7 @@ class Csiro(object):
             [train_len, val_len],
             generator=generator
         )
+        
 
         if self.mini:
             mini_train_dataset, _ = random_split(
@@ -164,7 +176,7 @@ class Csiro(object):
                 mini_train_dataset,
                 batch_size=batch_size,
                 shuffle=True,
-                num_workers=4,
+                num_workers=0,
                 pin_memory=True
             )
 
